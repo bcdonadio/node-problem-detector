@@ -2,7 +2,7 @@
 	"plugin": "kmsg",
 	"logPath": "/dev/kmsg",
 	"lookback": "5m",
-	"bufferSize": 10,
+	"bufferSize": 50,
 	"source": "kernel-monitor",
 	"conditions": [
 		{
@@ -20,7 +20,7 @@
 		{
 			"type": "temporary",
 			"reason": "OOMKilling",
-			"pattern": "Kill process \\d+ (.+) score \\d+ or sacrifice child\\nKilled process \\d+ (.+) total-vm:\\d+kB, anon-rss:\\d+kB, file-rss:\\d+kB.*"
+			"pattern": "^Task in \/kubepods\/\\w+\/pod(\\w{8}-\\w{4}-\\w{4}-\\w{4}-\\w{12})\/(\\w{64}) killed as a result of limit of \\X*\nMemory cgroup out of memory: Kill process \\d+ (.+) score \\d+ or sacrifice child\nKilled process \\d+ (.+) total-vm:\\d+kB, anon-rss:\\d+kB, file-rss:\\d+kB.*$"
 		},
 		{
 			"type": "temporary",

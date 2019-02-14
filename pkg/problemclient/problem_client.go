@@ -26,7 +26,7 @@ import (
 	typedcorev1 "k8s.io/client-go/kubernetes/typed/core/v1"
 	"k8s.io/kubernetes/pkg/api/legacyscheme"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/clock"
@@ -55,6 +55,15 @@ type nodeProblemClient struct {
 	clock     clock.Clock
 	recorders map[string]record.EventRecorder
 	nodeRef   *v1.ObjectReference
+}
+
+type podProblemClient struct {
+	namespace string
+	podName   string
+	client    typedcorev1.CoreV1Interface
+	clock     clock.Clock
+	recorders map[string]record.EventRecorder
+	podRef    *v1.ObjectReference
 }
 
 // NewClientOrDie creates a new problem client, panics if error occurs.
@@ -110,10 +119,20 @@ func (c *nodeProblemClient) Eventf(eventType, source, reason, messageFmt string,
 	recorder, found := c.recorders[source]
 	if !found {
 		// TODO(random-liu): If needed use separate client and QPS limit for event.
-		recorder = getEventRecorder(c.client, c.nodeName, source)
+		recorder = getNodeEventRecorder(c.client, c.nodeName, source)
 		c.recorders[source] = recorder
 	}
 	recorder.Eventf(c.nodeRef, eventType, reason, messageFmt, args...)
+}
+
+func (c *podProblemClient) Eventf(eventType, source, reason, messageFmt string, args ...interface{}) {
+	recorder, found := c.recorders[source]
+	if !found {
+		// TODO(random-liu): If needed use separate client and QPS limit for event.
+		recorder = getPodEventRecorder(c.client, c.namespace, c.podName, source)
+		c.recorders[source] = recorder
+	}
+	recorder.Eventf(c.podRef, eventType, reason, messageFmt, args...)
 }
 
 // generatePatch generates condition patch
@@ -125,11 +144,20 @@ func generatePatch(conditions []v1.NodeCondition) ([]byte, error) {
 	return []byte(fmt.Sprintf(`{"status":{"conditions":%s}}`, raw)), nil
 }
 
-// getEventRecorder generates a recorder for specific node name and source.
-func getEventRecorder(c typedcorev1.CoreV1Interface, nodeName, source string) record.EventRecorder {
+// getNodeEventRecorder generates a recorder for specific node name and source.
+func getNodeEventRecorder(c typedcorev1.CoreV1Interface, nodeName, source string) record.EventRecorder {
 	eventBroadcaster := record.NewBroadcaster()
 	eventBroadcaster.StartLogging(glog.V(4).Infof)
 	recorder := eventBroadcaster.NewRecorder(legacyscheme.Scheme, v1.EventSource{Component: source, Host: nodeName})
+	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: c.Events("")})
+	return recorder
+}
+
+// getPodEventRecorder generates a recorder for specific namespace, pod name and source host.
+func getPodEventRecorder(c typedcorev1.CoreV1Interface, namespace, podName, source string) record.EventRecorder {
+	eventBroadcaster := record.NewBroadcaster()
+	eventBroadcaster.StartLogging(glog.V(4).Infof)
+	recorder := eventBroadcaster.NewRecorder(legacyscheme.Scheme, v1.EventSource{Component: source, Host: source})
 	eventBroadcaster.StartRecordingToSink(&typedcorev1.EventSinkImpl{Interface: c.Events("")})
 	return recorder
 }
@@ -141,5 +169,14 @@ func getNodeRef(nodeName string) *v1.ObjectReference {
 		Name:      nodeName,
 		UID:       types.UID(nodeName),
 		Namespace: "",
+	}
+}
+
+func getPodRef(namespace string, podName string) *v1.ObjectReference {
+	return &v1.ObjectReference{
+		Kind:      "Pod",
+		Name:      podName,
+		UID:       types.UID(podName),
+		Namespace: namespace,
 	}
 }

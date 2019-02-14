@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/clock"
 	"k8s.io/client-go/tools/record"
@@ -31,11 +31,13 @@ import (
 )
 
 const (
-	testSource = "test"
-	testNode   = "test-node"
+	testSource    = "test-source"
+	testNode      = "test-node"
+	testNamespace = "test-namespace"
+	testPod       = "test-pod"
 )
 
-func newFakeProblemClient() *nodeProblemClient {
+func newFakeNodeProblemClient() *nodeProblemClient {
 	return &nodeProblemClient{
 		nodeName: testNode,
 		// There is no proper fake for *client.Client for now
@@ -43,6 +45,18 @@ func newFakeProblemClient() *nodeProblemClient {
 		clock:     &clock.FakeClock{},
 		recorders: make(map[string]record.EventRecorder),
 		nodeRef:   getNodeRef(testNode),
+	}
+}
+
+func newFakePodProblemClient() *podProblemClient {
+	return &podProblemClient{
+		namespace: testNamespace,
+		podName:   testPod,
+		// There is no proper fake for *client.Client for now
+		// TODO(random-liu): Add test for SetConditions when we have good fake for *client.Client
+		clock:     &clock.FakeClock{},
+		recorders: make(map[string]record.EventRecorder),
+		podRef:    getPodRef(testNamespace, testPod),
 	}
 }
 
@@ -75,9 +89,20 @@ func TestGeneratePatch(t *testing.T) {
 	}
 }
 
-func TestEvent(t *testing.T) {
+func TestNodeEvent(t *testing.T) {
 	fakeRecorder := record.NewFakeRecorder(1)
-	client := newFakeProblemClient()
+	client := newFakeNodeProblemClient()
+	client.recorders[testSource] = fakeRecorder
+	client.Eventf(v1.EventTypeWarning, testSource, "test reason", "test message")
+	expected := fmt.Sprintf("%s %s %s", v1.EventTypeWarning, "test reason", "test message")
+	got := <-fakeRecorder.Events
+	if expected != got {
+		t.Errorf("expected event %q, got %q", expected, got)
+	}
+}
+func TestPodEvent(t *testing.T) {
+	fakeRecorder := record.NewFakeRecorder(1)
+	client := newFakePodProblemClient()
 	client.recorders[testSource] = fakeRecorder
 	client.Eventf(v1.EventTypeWarning, testSource, "test reason", "test message")
 	expected := fmt.Sprintf("%s %s %s", v1.EventTypeWarning, "test reason", "test message")
